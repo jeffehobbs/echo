@@ -14,6 +14,8 @@ final class EchoEngine: ObservableObject {
     /// Where the phrases go, and where the bed goes.
     @Published var phraseRoute: Route = .synth { didSet { weaver.phraseRoute = phraseRoute; save() } }
     @Published var bedRoute: Route = .synth { didSet { weaver.bedRoute = bedRoute; save() } }
+    /// The bed's voice tone.
+    @Published var bedTone: Timbre = Timbre.named(2) { didSet { weaver.bedTimbre = bedTone.index; save() } }
 
     @Published var bpm: Double = 58 { didSet { weaver.bpm = bpm; syncDelay(); save() } }
     @Published var density: Double = 0.5 { didSet { weaver.density = density; save() } }
@@ -37,6 +39,7 @@ final class EchoEngine: ObservableObject {
         static let reverb = "reverb", delay = "delay", volume = "volume"
         static let drone = "drone", monitor = "monitorInput"
         static let phraseRoute = "phraseRoute", bedRoute = "bedRoute"
+        static let bedTone = "bedTone"
         static let destination = "destination"
     }
 
@@ -173,6 +176,9 @@ final class EchoEngine: ObservableObject {
         if let raw = defaults.string(forKey: Key.bedRoute), let route = Route(rawValue: raw) {
             bedRoute = route
         }
+        if defaults.object(forKey: Key.bedTone) != nil {
+            bedTone = Timbre.named(Int32(defaults.integer(forKey: Key.bedTone)))
+        }
         let stored = defaults.integer(forKey: Key.destination)
         if stored != 0 {
             // Only reconnect if that endpoint is still around.
@@ -195,6 +201,7 @@ final class EchoEngine: ObservableObject {
         weaver.harmonicPull = harmonicPull
         weaver.phraseRoute = phraseRoute
         weaver.bedRoute = bedRoute
+        weaver.bedTimbre = bedTone.index
         weaver.droneEnabled = drone
         weaver.monitorInput = monitorInput
         weaver.playing = playing
@@ -219,6 +226,7 @@ final class EchoEngine: ObservableObject {
         defaults.set(monitorInput, forKey: Key.monitor)
         defaults.set(phraseRoute.rawValue, forKey: Key.phraseRoute)
         defaults.set(bedRoute.rawValue, forKey: Key.bedRoute)
+        defaults.set(Int(bedTone.index), forKey: Key.bedTone)
         defaults.set(Int(selectedDestination ?? 0), forKey: Key.destination)
     }
 

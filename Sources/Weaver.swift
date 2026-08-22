@@ -112,6 +112,9 @@ enum Route: String, CaseIterable, Identifiable {
 /// synth, to MIDI out, or both. Pitch is kept (not just frequency) because MIDI
 /// needs the note number.
 struct Voicing {
+    /// 0 for fire-and-forget. A non-zero id can be released early — which is
+    /// what lets the bed change tone without waiting out its current note.
+    var id: Int32 = 0
     var pitch: Int
     var velocity: Float
     var hold: Double
@@ -123,7 +126,7 @@ struct Voicing {
 
     var synthCommand: SynthCommand {
         var cmd = SynthCommand()
-        cmd.id = 0
+        cmd.id = id
         cmd.freq = Pitch.frequency(pitch)
         cmd.velocity = max(0.03, min(1.0, velocity))
         cmd.holdSeconds = hold
@@ -166,6 +169,15 @@ final class Weaver {
     /// keeps the drone underneath.
     var phraseRoute: Route = .synth
     var bedRoute: Route = .synth
+    /// Which voice tone the bed uses. Changing it restarts the bed straight
+    /// away — waiting 23 beats to hear the tone you just picked is no way to
+    /// choose one.
+    var bedTimbre: Int32 = 2 {
+        didSet {
+            guard bedTimbre != oldValue else { return }
+            queue.async { self.restartBed() }
+        }
+    }
     /// MIDI out, if the app wired one up.
     weak var midiOut: MIDIOutput?
     /// Notified of every note Echo emits, to arm its loopback guard.
@@ -186,6 +198,7 @@ final class Weaver {
     /// too, which is what keeps external instruments from hanging.
     private enum Event {
         case play(Voicing)
+        case releaseVoice(id: Int32)
         case midiOff(pitch: Int, channel: UInt8)
     }
 
@@ -203,7 +216,15 @@ final class Weaver {
     private var sessionKey = MusicKey(tonic: 0, isMinor: false)
     private var sessionConfidence = 0.0
     private var droneCounter = 0
+    /// The bed sounds on one reserved voice, so it can be released on purpose.
+    private static let bedVoiceID: Int32 = 7000
+    private var lastBedPitch: Int?
     private var lastSnapshot: Double = 0
+    /// The clock reading the weaver last acted on. Anything scheduled outside
+    /// the beat loop uses this rather than reading the wall clock directly, so
+    /// the weaver stays agnostic about what is driving it — the real timer in
+    /// the app, or a synthetic clock in a test.
+    private var currentTime: Double = 0
 
     /// Set when the UI wants a phrase heard immediately.
     private var auditionRequests: [Int] = []
@@ -419,6 +440,7 @@ final class Weaver {
 
     private func tick() {
         let now = Clock.now()
+        currentTime = now
         listener.bpm = bpm
         listener.tick(now: now)
 
@@ -460,6 +482,11 @@ final class Weaver {
                 // The matching off is queued now, so it survives a route change.
                 enqueue(.midiOff(pitch: voicing.pitch, channel: channel), at: item.time + voicing.hold)
             }
+        case .releaseVoice(let id):
+            var cmd = SynthCommand()
+            cmd.isOn = false
+            cmd.id = id
+            synth.commands.push(cmd)
         case .midiOff(let pitch, let channel):
             midiOut?.noteOff(pitch: pitch, channel: channel)
         }
@@ -732,15 +759,36 @@ final class Weaver {
         guard !entries.isEmpty else { return }
         // A prime again, so the bed never lines up with the phrases above it.
         guard beat % 23 == 0 else { return }
+        fireBed(at: time)
+    }
+
+    /// Stop the bed and start it again now, in whatever tone is selected.
+    private func restartBed() {
+        guard droneEnabled, !entries.isEmpty, playing else { return }
+        releaseBed(at: currentTime)
+        fireBed(at: currentTime)
+    }
+
+    private func releaseBed(at time: Double) {
+        enqueue(.releaseVoice(id: Self.bedVoiceID), at: time)
+        if bedRoute.toMIDI, let pitch = lastBedPitch {
+            enqueue(.midiOff(pitch: pitch, channel: 1), at: time)
+        }
+        lastBedPitch = nil
+    }
+
+    private func fireBed(at time: Double) {
         droneCounter += 1
         let degrees = [0, 7, 0, 5, 7, 0]
         let degree = degrees[droneCounter % degrees.count]
         let pitch = clampPitch(36 + sessionKey.tonic + degree)
-        let bed = Voicing(pitch: pitch,
+        lastBedPitch = pitch
+        let bed = Voicing(id: Self.bedVoiceID,
+                          pitch: pitch,
                           velocity: 0.17,
                           hold: 23 * spb * 0.8,
                           pan: droneCounter % 2 == 0 ? -0.2 : 0.2,
-                          timbre: 2,
+                          timbre: bedTimbre,
                           attack: 3.2,
                           release: 7.0,
                           part: .bed)
@@ -826,6 +874,7 @@ final class Weaver {
         for b in 0..<beats {
             beat = b
             let time = Double(b) * spb
+            currentTime = time
             onBeat(b, at: time)
             if render != nil {
                 // Commit everything due within this beat, then let the caller

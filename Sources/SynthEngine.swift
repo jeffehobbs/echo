@@ -268,6 +268,19 @@ final class SynthKernel {
     }
 }
 
+/// A selectable voice tone, for the interface.
+struct Timbre: Hashable, Identifiable {
+    let index: Int32
+    var id: Int32 { index }
+    var name: String { SynthKernel.timbreNames[Int(index)] }
+
+    static let all = SynthKernel.timbreNames.indices.map { Timbre(index: Int32($0)) }
+
+    static func named(_ index: Int32) -> Timbre {
+        all.first { $0.index == index } ?? all[0]
+    }
+}
+
 /// AVAudioEngine wiring: pad voices into a long delay and a big reverb, which
 /// is most of what makes this sound like ambient rather than a synth demo.
 final class AudioOutput {

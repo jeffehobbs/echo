@@ -152,6 +152,10 @@ struct ContentView: View {
                           label: { $0.label }, selection: $engine.phraseRoute)
                 Segmented(title: "bed", options: Route.allCases,
                           label: { $0.label }, selection: $engine.bedRoute)
+                Segmented(title: "tone", options: Timbre.all,
+                          label: { $0.name }, selection: $engine.bedTone)
+                    .disabled(!engine.drone)
+                    .opacity(engine.drone ? 1 : 0.4)
             }
             .padding(.top, 2)
         }

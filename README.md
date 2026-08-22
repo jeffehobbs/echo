@@ -152,7 +152,11 @@ arpeggiates.
 
 A low drone on the session key comes in every 23 beats — another prime, so the
 bed never lines up with what is above it. It stays silent until Echo has heard
-something; the app answers, it doesn't start on its own.
+something; the app answers, it doesn't start on its own. The bed can use any of
+the four voices, and switching restarts it on the spot: a bed note lasts most of
+those 23 beats, and waiting half a minute to hear the tone you just picked is no
+way to choose one. Measured, the four differ from 186 Hz to 320 Hz of spectral
+brightness — deep is the darkest, bell the brightest.
 
 ## The synth
 
@@ -182,6 +186,7 @@ limiter is a safety net rather than a gain stage.
 | **monitor** | Whether Echo also sounds what you play. **Off by default** — anything that can send MIDI usually has its own voice, and doubling it is never what you want. Turn it on for a controller with no sound of its own. |
 | **drone** | The low bed. |
 | **phrases / bed** | Where each stream goes: internal synth, MIDI out, or both. |
+| **tone** | Which of the four voices the bed uses — glass, wood, deep, bell. Changing it restarts the bed immediately rather than waiting out its current note. |
 
 The wheel shows the detected session key, how compatible every other slot is
 with it, and a dot per phrase on the slot it currently occupies. In the
