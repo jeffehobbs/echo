@@ -8,7 +8,7 @@ struct EchoApp: App {
         Window("Echo", id: "echo") {
             ContentView()
                 .environmentObject(engine)
-                .frame(minWidth: 900, minHeight: 710)
+                .frame(minWidth: 900, minHeight: 760)
                 .preferredColorScheme(.dark)
         }
         .windowResizability(.contentSize)

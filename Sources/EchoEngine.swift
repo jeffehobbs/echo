@@ -21,6 +21,9 @@ final class EchoEngine: ObservableObject {
     @Published var density: Double = 0.5 { didSet { weaver.density = density; save() } }
     @Published var layers: Double = 4 { didSet { weaver.maxLayers = Int(layers); save() } }
     @Published var arpeggio: Double = 0.45 { didSet { weaver.arpeggioAmount = arpeggio; save() } }
+    @Published var tape: Double = 0.30 { didSet { weaver.tapeAmount = tape; save() } }
+    @Published var reverse: Double = 0.30 { didSet { weaver.reverseAmount = reverse; save() } }
+    @Published var shuffle: Double = 0.25 { didSet { weaver.shuffleAmount = shuffle; save() } }
     @Published var harmonicPull: Double = 0.7 { didSet { weaver.harmonicPull = harmonicPull; save() } }
     @Published var reverb: Double = 58 { didSet { audio.reverbMix = Float(reverb); save() } }
     @Published var delay: Double = 28 { didSet { audio.delayMix = Float(delay); save() } }
@@ -36,6 +39,7 @@ final class EchoEngine: ObservableObject {
     private enum Key {
         static let bpm = "bpm", density = "density", layers = "layers"
         static let arpeggio = "arpeggio", harmonicPull = "harmonicPull"
+        static let tape = "tape", reverse = "reverse", shuffle = "shuffle"
         static let reverb = "reverb", delay = "delay", volume = "volume"
         static let drone = "drone", monitor = "monitorInput"
         static let phraseRoute = "phraseRoute", bedRoute = "bedRoute"
@@ -162,6 +166,10 @@ final class EchoEngine: ObservableObject {
             density = defaults.double(forKey: Key.density)
             layers = defaults.double(forKey: Key.layers)
             arpeggio = defaults.double(forKey: Key.arpeggio)
+            // Added after the first release, so they need their own defaults.
+            if defaults.object(forKey: Key.tape) != nil { tape = defaults.double(forKey: Key.tape) }
+            if defaults.object(forKey: Key.reverse) != nil { reverse = defaults.double(forKey: Key.reverse) }
+            if defaults.object(forKey: Key.shuffle) != nil { shuffle = defaults.double(forKey: Key.shuffle) }
             harmonicPull = defaults.double(forKey: Key.harmonicPull)
             reverb = defaults.double(forKey: Key.reverb)
             delay = defaults.double(forKey: Key.delay)
@@ -198,6 +206,9 @@ final class EchoEngine: ObservableObject {
         weaver.density = density
         weaver.maxLayers = Int(layers)
         weaver.arpeggioAmount = arpeggio
+        weaver.tapeAmount = tape
+        weaver.reverseAmount = reverse
+        weaver.shuffleAmount = shuffle
         weaver.harmonicPull = harmonicPull
         weaver.phraseRoute = phraseRoute
         weaver.bedRoute = bedRoute
@@ -218,6 +229,9 @@ final class EchoEngine: ObservableObject {
         defaults.set(density, forKey: Key.density)
         defaults.set(layers, forKey: Key.layers)
         defaults.set(arpeggio, forKey: Key.arpeggio)
+        defaults.set(tape, forKey: Key.tape)
+        defaults.set(reverse, forKey: Key.reverse)
+        defaults.set(shuffle, forKey: Key.shuffle)
         defaults.set(harmonicPull, forKey: Key.harmonicPull)
         defaults.set(reverb, forKey: Key.reverb)
         defaults.set(delay, forKey: Key.delay)

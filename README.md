@@ -150,12 +150,28 @@ decides how strongly it prefers the key over the phrase's own colour. Measured
 over an hour of generated output, near-simultaneous entrances average 0.84
 compatibility with 1% clashes.
 
-**Arpeggios.** Chords occasionally break out instead of sounding as a block:
-a prime gate on the phrase's own play count, times the `arpeggiate` amount. Up,
-down, up-and-back, or a figure that keeps returning to the root; one to three
-passes, sometimes climbing an octave; step sizes of a half, third, quarter or
-sixth of a beat. At the default setting about one chord airing in six
-arpeggiates.
+**Manipulations.** Four ways a phrase can be turned over on its way out, each
+with its own amount:
+
+- **arp** — a chord breaks out instead of sounding as a block. Up, down,
+  up-and-back, or a figure that keeps returning to the root; one to three
+  passes, sometimes climbing an octave; step sizes of a half, third, quarter or
+  sixth of a beat.
+- **tape** — the phrase plays at another speed with pitch and time locked, the
+  way a tape machine couples them: down an octave at half speed, or up an octave
+  at double. Because they move together it still reads as the same gesture,
+  which an uncoupled stretch does not.
+- **rev** — the phrase plays backwards.
+- **shuffle** — the notes are dealt into different slots of the same rhythm.
+  Velocity and duration stay with the slot, so the groove and its accents
+  survive and only the tune changes.
+
+Each is gated by one of four primes dealt to that phrase without replacement, so
+a given phrase arpeggiates every 2nd airing, tapes every 5th, reverses every
+7th — some order of 2, 3, 5 and 7 — and the four never coincide on a schedule.
+Per phrase that means rates of 50%, 33%, 20% and 14% of the slider; across a
+vocabulary they even out. Arpeggio and shuffle both rebuild the order, so
+reverse yields to either, and the two never combine with each other.
 
 A low drone on the session key comes in every 23 beats — another prime, so the
 bed never lines up with what is above it. It stays silent until Echo has heard
@@ -187,7 +203,7 @@ limiter is a safety net rather than a gain stage.
 | **tempo** | Beats per minute. Maps the cadence of everything — phrases are stored in beats. |
 | **density** | Compresses or stretches every recurrence period at once. |
 | **layers** | How many phrases may sound at the same time. |
-| **arpeggiate** | How often chords break into arpeggios. |
+| **arp / tape / rev / shuffle** | How often each manipulation fires. Tape moves pitch and speed together (an octave down at half speed, or up at double); shuffle re-orders the notes inside the same rhythm. |
 | **harmonic pull** | 0 stacks phrases in the keys they were played in; 1 pulls everything into the session key. |
 | **play / learn** | Stop answering / stop listening. Independent. |
 | **monitor** | Whether Echo also sounds what you play. **Off by default** — anything that can send MIDI usually has its own voice, and doubling it is never what you want. Turn it on for a controller with no sound of its own. |

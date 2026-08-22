@@ -107,7 +107,7 @@ struct ContentView: View {
     // MARK: - Left column
 
     private var leftColumn: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 13) {
             CamelotWheelView(sessionKey: engine.snapshot.sessionKey,
                              confidence: engine.snapshot.keyConfidence,
                              cards: engine.snapshot.cards,
@@ -129,17 +129,34 @@ struct ContentView: View {
                 Spacer()
             }
 
-            VStack(spacing: 11) {
+            VStack(spacing: 9) {
                 Dial(title: "tempo", value: $engine.bpm, range: 30...120,
                      readout: "\(Int(engine.bpm.rounded()))", step: 1)
                 Dial(title: "density", value: $engine.density, range: 0...1,
                      readout: percent(engine.density))
                 Dial(title: "layers", value: $engine.layers, range: 1...8,
                      readout: "\(Int(engine.layers))", step: 1)
-                Dial(title: "arpeggiate", value: $engine.arpeggio, range: 0...1,
-                     readout: percent(engine.arpeggio))
                 Dial(title: "harmonic pull", value: $engine.harmonicPull, range: 0...1,
                      readout: percent(engine.harmonicPull))
+
+                // The three ways a phrase can be turned over, side by side:
+                // they are siblings, and it reads better than three more rows.
+                VStack(alignment: .leading, spacing: 6) {
+                    Theme.label("manipulations")
+                    HStack(spacing: 14) {
+                        Dial(title: "arp", value: $engine.arpeggio, range: 0...1,
+                             readout: percent(engine.arpeggio))
+                        Dial(title: "tape", value: $engine.tape, range: 0...1,
+                             readout: percent(engine.tape))
+                    }
+                    HStack(spacing: 14) {
+                        Dial(title: "rev", value: $engine.reverse, range: 0...1,
+                             readout: percent(engine.reverse))
+                        Dial(title: "shuffle", value: $engine.shuffle, range: 0...1,
+                             readout: percent(engine.shuffle))
+                    }
+                }
+                .padding(.top, 3)
             }
 
             VStack(spacing: 7) {
@@ -344,11 +361,11 @@ struct PhraseRow: View {
                     if card.isChord {
                         Theme.label("chord")
                     }
-                    if card.arpeggiated && card.sounding {
-                        Text("arp")
-                            .font(.system(size: 8, weight: .medium))
-                            .tracking(1.2)
-                            .foregroundStyle(Theme.warm)
+                    if card.sounding {
+                        if card.arpeggiated { badge("arp") }
+                        if card.taped != 0 { badge(card.taped < 0 ? "tape \u{2193}" : "tape \u{2191}") }
+                        if card.reversed { badge("rev") }
+                        if card.shuffled { badge("shuf") }
                     }
                 }
                 HStack(spacing: 8) {
@@ -412,6 +429,13 @@ struct PhraseRow: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { engine.audition(card.id) }
+    }
+
+    private func badge(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 8, weight: .medium))
+            .tracking(1.2)
+            .foregroundStyle(Theme.warm)
     }
 
     private func stepper(_ symbol: String, _ delta: Double) -> some View {

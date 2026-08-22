@@ -13,10 +13,18 @@ final class VocabEntry {
     var soundingUntil: Double = 0
     var timbre: Int
     var basePan: Float
-    /// Prime that gates arpeggios for this entry.
+    /// Primes gating each manipulation for this entry. Distinct where possible,
+    /// so a phrase's arpeggios, tape moves and reversals never coincide on a
+    /// schedule of their own.
     var arpPrime: Int
+    var tapePrime: Int
+    var reversePrime: Int
+    var shufflePrime: Int
     var lastTranspose = 0
     var lastArpeggiated = false
+    var lastTaped = 0        // -1 down an octave at half speed, +1 up at double
+    var lastReversed = false
+    var lastShuffled = false
     var lastFragment: [Int] = []
     var lastFiredBeat = -1
 
@@ -30,7 +38,17 @@ final class VocabEntry {
         var rng = Rng(seed: seed)
         self.timbre = phrase.isChord ? (rng.chance(0.55) ? 0 : 2) : rng.int(0..<4)
         self.basePan = Float(rng.unit() * 1.4 - 0.7)
-        self.arpPrime = [2, 3, 3, 5][rng.int(0..<4)]
+        // Deal three different primes from the small set, so the three
+        // manipulations recur on independent cycles.
+        var pool = [2, 3, 5, 7]
+        func take() -> Int {
+            guard !pool.isEmpty else { return 3 }
+            return pool.remove(at: rng.int(0..<pool.count))
+        }
+        self.arpPrime = take()
+        self.tapePrime = take()
+        self.reversePrime = take()
+        self.shufflePrime = take()
     }
 
     /// Where this phrase sits on the wheel once its last transposition is
@@ -62,6 +80,10 @@ struct PhraseCard: Identifiable, Equatable {
     var sounding: Bool
     var transpose: Int
     var arpeggiated: Bool
+    /// -1 down an octave at half speed, +1 up at double, 0 not taped.
+    var taped: Int
+    var reversed: Bool
+    var shuffled: Bool
     var isNewest: Bool
     var glyph: [GlyphDot]
 }
@@ -152,6 +174,17 @@ final class Weaver {
     var maxLayers: Int = 4
     /// 0...1 — how often chords break into arpeggios.
     var arpeggioAmount: Double = 0.45
+    /// 0...1 — how often a phrase is played back like tape at another speed:
+    /// down an octave at half speed, or up an octave at double. Pitch and time
+    /// move together, which is what makes it read as the same gesture rather
+    /// than a different one.
+    var tapeAmount: Double = 0.30
+    /// 0...1 — how often a phrase plays backwards.
+    var reverseAmount: Double = 0.30
+    /// 0...1 — how often the notes of a phrase are dealt into a different
+    /// order while keeping their timing, so the rhythm survives and the melody
+    /// does not.
+    var shuffleAmount: Double = 0.25
     /// 0...1 — how hard Echo pulls phrases toward the session key. At 0 it
     /// stacks them as played; at 1 everything is transposed into the key.
     var harmonicPull: Double = 0.7
@@ -243,9 +276,27 @@ final class Weaver {
         var camelot: String
         var transpose: Int
         var arpeggiated: Bool
+        var taped: Int
+        var reversed: Bool
+        var shuffled: Bool
         var layers: Int
         var notes: Int
         var lowestPitch: Int
+        var firstPitch: Int
+        var lastPitch: Int
+        /// First onset to last, in seconds — halves and doubles with tape.
+        var spanSeconds: Double
+        /// The fragment as it was played, before any transform: the reference
+        /// a test can check the transforms against without asking the code to
+        /// confirm its own arithmetic.
+        var sourceFirstPitch: Int
+        var sourceSpanBeats: Double
+        /// The fragment's own onsets and pitches, and what actually came out,
+        /// so a test can check a transform without re-deriving it.
+        var sourceOnsets: [Double]
+        var sourcePitches: [Int]
+        var emittedOnsets: [Double]
+        var emittedPitches: [Int]
         var longestHold: Double
         /// Longest hold among the notes actually in the bass, which is the
         /// figure that decides whether an airing drones.
@@ -623,15 +674,25 @@ final class Weaver {
             && entry.playCount % entry.arpPrime == 0
             && local.chance(arpeggioAmount)
 
+        // Shuffle is decided here, alongside arpeggio, for the same reason: so
+        // the fragment can be chosen to suit it. Judged the other way round —
+        // letting whichever fragment came up decide — a two-note slice vetoes
+        // the shuffle and the slider never reaches the rate it promises.
+        let shuffleWanted = !arpeggiate
+            && entry.phrase.notes.count >= 3 && phraseSpan >= 0.3
+            && entry.playCount % entry.shufflePrime == 0
+            && local.chance(shuffleAmount)
+
         // Which fragment: step through the list by a prime, so the sequence of
         // fragments visits all of them without ever cycling in step with the
         // phrase's own period.
         let step = Primes.step(for: entry.fragments.count, seed: Int(entry.seed % 97))
         let index = (entry.playCount * step) % entry.fragments.count
         var fragment = entry.fragments[index]
-        if arpeggiate {
-            // An arpeggio needs something to spread, so pass over the shell
-            // and single-note fragments this time around.
+        if arpeggiate || shuffleWanted {
+            // An arpeggio needs something to spread and a shuffle needs
+            // something to re-order, so both pass over the shell and
+            // single-note fragments this time around.
             let spreadable = entry.fragments.filter { $0.count >= 3 }
             if !spreadable.isEmpty {
                 fragment = spreadable[(entry.playCount * step) % spreadable.count]
@@ -642,15 +703,53 @@ final class Weaver {
 
         let transpose = chooseTranspose(for: entry, at: time)
 
-        // Time and register transforms, also prime-stepped.
-        let rates = [1.0, 1.0, 0.5, 2.0, 1.5, 2.0 / 3.0]
-        let rate = rates[(entry.playCount * 3) % rates.count]
-        // No two-octave drops. Combined with the floor in clampPitch, phrases
-        // stay out of the sub-bass: down there a fragment stops reading as a
-        // phrase and starts reading as a drone.
+        // These need a gesture with some time in it: there is nothing to slow
+        // down, turn around or re-order in a block chord. Judged on the
+        // fragment actually being played, not the phrase it came from, so a
+        // badge never claims a transform that was inaudible.
+        let fragmentSpan = (notes.map(\.onsetBeats).max() ?? 0) - (notes.map(\.onsetBeats).min() ?? 0)
+        let hasSpread = notes.count >= 2 && fragmentSpan >= 0.25
+
+        // Tape: pitch and speed locked, the way a tape machine couples them.
+        // Down an octave at half speed, or up an octave at double.
+        var tape = 0
+        if hasSpread, entry.playCount % entry.tapePrime == 0, local.chance(tapeAmount) {
+            tape = (entry.playCount / max(1, entry.tapePrime)) % 2 == 0 ? -1 : 1
+        }
+
+        // Reverse: the phrase plays backwards. Pointless on a chord, and
+        // redundant under an arpeggio, which has descending patterns of its own.
+        // The timing stays, the notes move to different slots in it.
+        let shuffled = shuffleWanted && notes.count >= 3 && fragmentSpan >= 0.25
+
+        // Reverse: the phrase plays backwards. Pointless on a chord, and
+        // redundant under an arpeggio or a shuffle, both of which already
+        // decide the order.
+        let reversed = hasSpread && !arpeggiate && !shuffled
+            && entry.playCount % entry.reversePrime == 0
+            && local.chance(reverseAmount)
+
+        // Time and register otherwise drift gently, prime-stepped. The dramatic
+        // halving and doubling belongs to tape now, where the pitch moves with
+        // it — an uncoupled half-speed pass and a coupled one are different
+        // effects and having both fire freely muddied each other.
+        let rates = [1.0, 1.0, 1.0, 1.5, 2.0 / 3.0]
         let octaves = [0, 0, 0, -12, 12, -12]
-        let octave = octaves[(entry.playCount * 5) % octaves.count]
-        let reversed = !entry.phrase.isChord && entry.playCount % 7 == 6
+        let rate: Double
+        let octave: Int
+        switch tape {
+        // `rate` scales the note timings, so it is a duration multiplier, not
+        // a speed one: 2.0 is half speed, 0.5 is double. Slowing down goes with
+        // dropping an octave, the way it does on a tape machine.
+        case -1: rate = 2.0;  octave = -12
+        case 1:  rate = 0.5;  octave = 12
+        default:
+            rate = rates[(entry.playCount * 3) % rates.count]
+            // No two-octave drops. Combined with the floor in clampPitch,
+            // phrases stay out of the sub-bass: down there a fragment stops
+            // reading as a phrase and starts reading as a drone.
+            octave = octaves[(entry.playCount * 5) % octaves.count]
+        }
 
         let layerScale = 1.0 / (1.0 + 0.35 * Double(layers))
         // Presence is relative to the loudest phrase, for the same reason the
@@ -708,10 +807,15 @@ final class Weaver {
         } else {
             let source = reversed ? Array(notes.reversed()) : notes
             let span = notes.map(\.onsetBeats).max() ?? 0
+            // Shuffling deals the pitches into different slots. Velocity and
+            // duration stay with the slot, so the rhythm and its accents
+            // survive intact and only the tune changes.
+            var pitches = source.map(\.pitch)
+            if shuffled { pitches = Self.dealt(pitches, rng: &local) }
             for (i, note) in source.enumerated() {
                 let onsetBeats = reversed ? (span - note.onsetBeats) : note.onsetBeats
                 let onset = time + onsetBeats * rate * spb
-                let pitch = clampPitch(note.pitch + transpose + octave)
+                let pitch = clampPitch(pitches[i] + transpose + octave)
                 // Ambient: hold notes well past their played length.
                 let hold = cappedHold(note.durationBeats * rate * spb * (1.5 + 1.2 * entry.weight),
                                       pitch: pitch)
@@ -731,8 +835,20 @@ final class Weaver {
             fireLog.append(FireLog(beat: beat, id: entry.phrase.id, prime: entry.period,
                                    camelot: Camelot(entry.phrase.key.transposed(by: transpose)).code,
                                    transpose: transpose, arpeggiated: arpeggiate,
+                                   taped: tape, reversed: reversed, shuffled: shuffled,
                                    layers: layers, notes: scheduled.count,
                                    lowestPitch: scheduled.map(\.voicing.pitch).min() ?? 0,
+                                   firstPitch: scheduled.first?.voicing.pitch ?? 0,
+                                   lastPitch: scheduled.last?.voicing.pitch ?? 0,
+                                   spanSeconds: (scheduled.map(\.time).max() ?? 0)
+                                       - (scheduled.map(\.time).min() ?? 0),
+                                   sourceFirstPitch: notes.first?.pitch ?? 0,
+                                   sourceSpanBeats: (notes.map(\.onsetBeats).max() ?? 0)
+                                       - (notes.map(\.onsetBeats).min() ?? 0),
+                                   sourceOnsets: notes.map(\.onsetBeats),
+                                   sourcePitches: notes.map(\.pitch),
+                                   emittedOnsets: scheduled.map { $0.time - time },
+                                   emittedPitches: scheduled.map(\.voicing.pitch),
                                    longestHold: scheduled.map(\.voicing.hold).max() ?? 0,
                                    longestBassHold: scheduled.filter { $0.voicing.pitch < 48 }
                                        .map(\.voicing.hold).max() ?? 0))
@@ -740,6 +856,9 @@ final class Weaver {
         entry.playCount += 1
         entry.lastTranspose = transpose
         entry.lastArpeggiated = arpeggiate
+        entry.lastTaped = tape
+        entry.lastReversed = reversed
+        entry.lastShuffled = shuffled
         entry.lastFragment = fragment
         entry.lastFiredBeat = beat
         entry.soundingUntil = lastEnd
@@ -816,6 +935,22 @@ final class Weaver {
         pending.insert(Scheduled(time: time, event: event), at: i)
     }
 
+    /// Fisher-Yates, then a guarantee that the result is actually a different
+    /// order — a shuffle that happens to deal the notes back where they started
+    /// is a silent no-op, and the badge would be lying.
+    private static func dealt(_ pitches: [Int], rng: inout Rng) -> [Int] {
+        guard pitches.count >= 2 else { return pitches }
+        var out = pitches
+        for i in stride(from: out.count - 1, to: 0, by: -1) {
+            let j = rng.int(0..<(i + 1))
+            out.swapAt(i, j)
+        }
+        if out == pitches, let first = pitches.firstIndex(where: { $0 != pitches[0] }) {
+            out.swapAt(0, first)
+        }
+        return out
+    }
+
     /// Low notes get shorter holds. A bass note ringing for eight seconds while
     /// the music moves on above it stops sounding like part of a phrase and
     /// starts sounding like a drone.
@@ -879,6 +1014,9 @@ final class Weaver {
                               sounding: entry.soundingUntil > now,
                               transpose: entry.lastTranspose,
                               arpeggiated: entry.lastArpeggiated,
+                              taped: entry.lastTaped,
+                              reversed: entry.lastReversed,
+                              shuffled: entry.lastShuffled,
                               isNewest: entry.phrase.id == lastLearned?.id,
                               glyph: glyph)
         }
