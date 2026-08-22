@@ -245,6 +245,11 @@ final class Weaver {
         var arpeggiated: Bool
         var layers: Int
         var notes: Int
+        var lowestPitch: Int
+        var longestHold: Double
+        /// Longest hold among the notes actually in the bass, which is the
+        /// figure that decides whether an airing drones.
+        var longestBassHold: Double
     }
 
     var debugLogging = false
@@ -640,7 +645,10 @@ final class Weaver {
         // Time and register transforms, also prime-stepped.
         let rates = [1.0, 1.0, 0.5, 2.0, 1.5, 2.0 / 3.0]
         let rate = rates[(entry.playCount * 3) % rates.count]
-        let octaves = [0, 0, -12, 12, -12, -24]
+        // No two-octave drops. Combined with the floor in clampPitch, phrases
+        // stay out of the sub-bass: down there a fragment stops reading as a
+        // phrase and starts reading as a drone.
+        let octaves = [0, 0, 0, -12, 12, -12]
         let octave = octaves[(entry.playCount * 5) % octaves.count]
         let reversed = !entry.phrase.isChord && entry.playCount % 7 == 6
 
@@ -686,7 +694,7 @@ final class Weaver {
                     let shift = octave + transpose + (climb ? 12 * pass : 0)
                     let pitch = clampPitch(note.pitch + shift)
                     let onset = time + Double(position) * stepBeats * spb
-                    let hold = max(0.28, stepBeats * spb * (2.2 + 1.4 * local.unit()))
+                    let hold = cappedHold(stepBeats * spb * (2.2 + 1.4 * local.unit()), pitch: pitch)
                     scheduled.append((onset, voicing(pitch: pitch,
                                                      velocity: note.velocity * base * 0.85,
                                                      hold: hold,
@@ -703,10 +711,10 @@ final class Weaver {
             for (i, note) in source.enumerated() {
                 let onsetBeats = reversed ? (span - note.onsetBeats) : note.onsetBeats
                 let onset = time + onsetBeats * rate * spb
-                // Ambient: hold notes well past their played length.
-                var hold = note.durationBeats * rate * spb * (1.5 + 1.2 * entry.weight)
-                hold = min(14, max(0.35, hold))
                 let pitch = clampPitch(note.pitch + transpose + octave)
+                // Ambient: hold notes well past their played length.
+                let hold = cappedHold(note.durationBeats * rate * spb * (1.5 + 1.2 * entry.weight),
+                                      pitch: pitch)
                 scheduled.append((onset, voicing(pitch: pitch,
                                                  velocity: note.velocity * base,
                                                  hold: hold,
@@ -723,7 +731,11 @@ final class Weaver {
             fireLog.append(FireLog(beat: beat, id: entry.phrase.id, prime: entry.period,
                                    camelot: Camelot(entry.phrase.key.transposed(by: transpose)).code,
                                    transpose: transpose, arpeggiated: arpeggiate,
-                                   layers: layers, notes: scheduled.count))
+                                   layers: layers, notes: scheduled.count,
+                                   lowestPitch: scheduled.map(\.voicing.pitch).min() ?? 0,
+                                   longestHold: scheduled.map(\.voicing.hold).max() ?? 0,
+                                   longestBassHold: scheduled.filter { $0.voicing.pitch < 48 }
+                                       .map(\.voicing.hold).max() ?? 0))
         }
         entry.playCount += 1
         entry.lastTranspose = transpose
@@ -804,9 +816,19 @@ final class Weaver {
         pending.insert(Scheduled(time: time, event: event), at: i)
     }
 
+    /// Low notes get shorter holds. A bass note ringing for eight seconds while
+    /// the music moves on above it stops sounding like part of a phrase and
+    /// starts sounding like a drone.
+    private func cappedHold(_ hold: Double, pitch: Int) -> Double {
+        let ceiling: Double = pitch < 48 ? 3.0 : 14.0
+        return min(ceiling, max(0.28, hold))
+    }
+
     private func clampPitch(_ pitch: Int) -> Int {
         var p = pitch
-        while p < 24 { p += 12 }
+        // C2. Below this a note is more rumble than pitch, especially held and
+        // sent through the reverb.
+        while p < 36 { p += 12 }
         while p > 100 { p -= 12 }
         return p
     }

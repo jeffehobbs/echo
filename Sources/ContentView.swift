@@ -22,15 +22,10 @@ struct ContentView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 14) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("echo")
-                    .font(.system(size: 22, weight: .ultraLight, design: .default))
-                    .tracking(6)
-                    .foregroundStyle(Theme.text)
-                Text("listens, then answers")
-                    .font(.system(size: 10, weight: .light))
-                    .foregroundStyle(Theme.faint)
-            }
+            Text("echo")
+                .font(.system(size: 22, weight: .ultraLight, design: .default))
+                .tracking(6)
+                .foregroundStyle(Theme.text)
             Spacer()
             inputIndicator
             sourcesMenu

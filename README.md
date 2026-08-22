@@ -135,6 +135,13 @@ faintest the longest. Every airing costs a phrase a little weight, so material
 recedes as it is used and newly played phrases come forward — but because the
 allocation is relative, a long session never drifts into everything-is-quiet.
 
+**Register.** A fragment is displaced by an octave now and then — half the
+airings sit where they were played, a third drop an octave, a sixth rise one —
+but never further down than that, nothing sounds below C2, and a note in the
+bass is held for at most three seconds. Down there a held fragment stops reading
+as a phrase and starts reading as a drone, which is not the same thing and gets
+in the way of the music above it.
+
 **Camelot placement.** Before a phrase enters, Echo looks at what is already
 ringing — the session key plus every sounding layer, weighted — and picks a
 transposition that sits well on top of it: leave it where it was played, move it
