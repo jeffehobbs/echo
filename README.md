@@ -159,8 +159,15 @@ something; the app answers, it doesn't start on its own.
 Four preallocated timbres (glass, wood, deep, bell) built from detuned partial
 stacks, each voice with its own slow tremolo, a velocity-tracking lowpass, long
 attacks and multi-second releases, spread across the stereo field. Forty voices
-into a tempo-synced delay and a large hall reverb. Nothing allocates on the
-render thread; note commands cross over through a try-lock queue.
+into a tempo-synced delay, a large hall reverb, and a peak limiter. Nothing
+allocates on the render thread; note commands cross over through a try-lock
+queue.
+
+Levels are measured, not guessed: `AudioOutput(offline:)` renders the whole
+chain without a sound card, so a long session can be checked in seconds. Thirty
+simulated minutes of eight phrases over the drone sits around −19 dBFS RMS with
+peaks near −2 dB, drifts under a decibel, and never reaches full scale — the
+limiter is a safety net rather than a gain stage.
 
 ## Controls
 
@@ -181,6 +188,14 @@ with it, and a dot per phrase on the slot it currently occupies. In the
 vocabulary list, tap a row to hear it now, `+`/`−` to make a phrase more or less
 present, `×` to forget it. The thumbnail lights up the notes of the fragment
 that played last.
+
+**The last thing Echo learned** sits in a banner above the list, with its shape,
+its slot on the wheel, how often it will recur, and a discard button — because
+the list is sorted by weight, so the newest phrase is not reliably at the top,
+and a phrase you did not mean to play wants throwing away immediately.
+`⌘⌫` discards it without reaching for the mouse; the row it refers to is marked
+with a hairline in the list. A phrase played again is shown as *heard again*
+rather than learned, since Echo reinforces repeats instead of storing duplicates.
 
 ## Layout
 

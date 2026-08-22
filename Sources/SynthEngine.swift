@@ -166,10 +166,16 @@ final class SynthKernel {
         }
         activeVoices = live
 
-        let gain = masterVolume
+        // Headroom. Four layers of phrases over a drone sum well past full
+        // scale, and the delay and reverb downstream only add to it — without
+        // this the mix leans on the limiter continuously instead of keeping it
+        // as a safety net, and the tanh spends its time distorting rather than
+        // catching peaks. Ambient does not want to be loud; the level slider is
+        // there for anyone who disagrees.
+        let gain = masterVolume * 0.75
         for f in 0..<frames {
-            left[f] = tanh(left[f] * 0.9) * gain
-            right[f] = tanh(right[f] * 0.9) * gain
+            left[f] = tanh(left[f] * 0.55) * gain
+            right[f] = tanh(right[f] * 0.55) * gain
         }
     }
 
@@ -222,7 +228,12 @@ final class SynthKernel {
             let f = cmd.freq * partial.0 * detune
             // Fold anything past Nyquist away instead of aliasing it.
             let inc = f < sampleRate * 0.45 ? f / sampleRate : 0
-            let amp = f < sampleRate * 0.45 ? partial.1 : 0
+            var amp = f < sampleRate * 0.45 ? partial.1 : 0
+            // Roll off the subsonic end too. The Deep timbre's half-frequency
+            // partial puts the drone's fundamental around 32 Hz, which most
+            // speakers cannot reproduce but which happily eats headroom and
+            // drives the reverb.
+            if f < 45 { amp *= Float(max(0, min(1, (f - 25) / 20))) }
             switch i {
             case 0: incs.0 = inc; amps.0 = amp
             case 1: incs.1 = inc; amps.1 = amp
@@ -265,6 +276,14 @@ final class AudioOutput {
     private let engine = AVAudioEngine()
     private let delay = AVAudioUnitDelay()
     private let reverb = AVAudioUnitReverb()
+    /// Final brick wall. The kernel's own tanh only protects the voice bank —
+    /// the delay's feedback and the reverb's build-up happen after it, and a
+    /// continuous low drone feeding both is exactly the case that runs away.
+    private let limiter = AVAudioUnitEffect(audioComponentDescription:
+        AudioComponentDescription(componentType: kAudioUnitType_Effect,
+                                  componentSubType: kAudioUnitSubType_PeakLimiter,
+                                  componentManufacturer: kAudioUnitManufacturer_Apple,
+                                  componentFlags: 0, componentFlagsMask: 0))
     private var sourceNode: AVAudioSourceNode?
 
     var delayMix: Float = 28 { didSet { delay.wetDryMix = delayMix } }
@@ -273,9 +292,14 @@ final class AudioOutput {
     /// Delay time follows the tempo (a dotted half at the session BPM).
     var delaySeconds: Double = 1.5 { didSet { delay.delayTime = min(2, max(0.05, delaySeconds)) } }
 
-    init() {
-        let sampleRate = engine.outputNode.outputFormat(forBus: 0).sampleRate
-        let rate = sampleRate > 0 ? sampleRate : 48000
+    /// `offline` swaps the sound card for manual rendering, so the whole chain
+    /// — voices, delay and reverb together — can be measured without playing
+    /// anything. That is the only honest way to check output levels: the
+    /// limiter and the reverb build-up are invisible if you only look at the
+    /// voice bank.
+    init(offline: Bool = false) {
+        let hardwareRate = engine.outputNode.outputFormat(forBus: 0).sampleRate
+        let rate = offline ? 48000 : (hardwareRate > 0 ? hardwareRate : 48000)
         kernel.prepare(sampleRate: rate)
         let format = AVAudioFormat(standardFormatWithSampleRate: rate, channels: 2)!
 
@@ -293,6 +317,7 @@ final class AudioOutput {
         engine.attach(node)
         engine.attach(delay)
         engine.attach(reverb)
+        engine.attach(limiter)
 
         delay.delayTime = 1.5
         delay.feedback = delayFeedback
@@ -303,7 +328,28 @@ final class AudioOutput {
 
         engine.connect(node, to: delay, format: format)
         engine.connect(delay, to: reverb, format: format)
-        engine.connect(reverb, to: engine.mainMixerNode, format: format)
+        engine.connect(reverb, to: limiter, format: format)
+        engine.connect(limiter, to: engine.mainMixerNode, format: format)
+
+        if offline {
+            try? engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 4096)
+        }
+    }
+
+    /// Renders `seconds` of the whole chain, handing each block to `block`.
+    /// Offline instances only.
+    func renderOffline(seconds: Double, _ block: (UnsafePointer<Float>, UnsafePointer<Float>, Int) -> Void) {
+        guard engine.manualRenderingMode == .offline,
+              let buffer = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat,
+                                            frameCapacity: 1024) else { return }
+        var remaining = Int(seconds * engine.manualRenderingFormat.sampleRate)
+        while remaining > 0 {
+            let frames = AVAudioFrameCount(min(1024, remaining))
+            guard let status = try? engine.renderOffline(frames, to: buffer), status == .success,
+                  let channels = buffer.floatChannelData else { return }
+            block(channels[0], channels[1], Int(buffer.frameLength))
+            remaining -= Int(frames)
+        }
     }
 
     func start() {

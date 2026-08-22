@@ -176,6 +176,13 @@ struct ContentView: View {
             .padding(.top, 14)
             .padding(.bottom, 8)
 
+            if let newest = engine.snapshot.newest,
+               let card = engine.snapshot.cards.first(where: { $0.id == newest.id }) {
+                LearnedBanner(card: card, learned: newest) { engine.discardLastLearned() }
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 10)
+            }
+
             if engine.snapshot.cards.isEmpty {
                 emptyState
             } else {
@@ -245,6 +252,78 @@ struct ContentView: View {
     }
 
     private func percent(_ value: Double) -> String { "\(Int((value * 100).rounded()))%" }
+}
+
+/// The last thing Echo heard, with a way to throw it away. Sitting above a list
+/// sorted by weight, this is the only place the newest phrase is guaranteed to
+/// be — and a bad phrase wants discarding immediately, not hunting for.
+struct LearnedBanner: View {
+    let card: PhraseCard
+    let learned: LearnedPhrase
+    let discard: () -> Void
+
+    private var age: String {
+        let seconds = Int(learned.ageSeconds.rounded())
+        if seconds < 2 { return "just now" }
+        if seconds < 60 { return "\(seconds)s ago" }
+        return "\(seconds / 60)m ago"
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            PhraseGlyph(card: card)
+                .frame(width: 60, height: 26)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(learned.reinforced ? "HEARD AGAIN" : "JUST LEARNED")
+                        .font(.system(size: 8, weight: .semibold))
+                        .tracking(1.6)
+                        .foregroundStyle(Theme.warm)
+                    Text(age)
+                        .font(.system(size: 8, design: .monospaced))
+                        .foregroundStyle(Theme.faint)
+                }
+                HStack(spacing: 7) {
+                    Text(card.label)
+                        .font(.system(size: 12, weight: .light))
+                        .foregroundStyle(Theme.text)
+                    Text(card.camelot)
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Theme.accent.opacity(0.85))
+                    Text("every \(card.prime) beats")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(Theme.dim)
+                }
+            }
+
+            Spacer()
+
+            Button(action: discard) {
+                HStack(spacing: 5) {
+                    Text("DISCARD")
+                        .font(.system(size: 9, weight: .medium))
+                        .tracking(1.4)
+                    Text("\u{2318}\u{232B}")
+                        .font(.system(size: 9))
+                        .opacity(0.55)
+                }
+                .foregroundStyle(Theme.warm)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 3).fill(Theme.warm.opacity(0.14)))
+            }
+            .buttonStyle(.plain)
+            .help("Forget this phrase")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Theme.warm.opacity(0.07))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.warm.opacity(0.22), lineWidth: 0.7))
+        )
+    }
 }
 
 /// One phrase in the vocabulary: its shape, where it sits on the wheel, the
@@ -325,6 +404,13 @@ struct PhraseRow: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 9)
         .background(card.sounding ? Theme.accent.opacity(0.05) : Color.clear)
+        .overlay(alignment: .leading) {
+            // A hairline on the newest phrase, so the banner above and the row
+            // below are obviously the same thing.
+            if card.isNewest {
+                Rectangle().fill(Theme.warm.opacity(0.7)).frame(width: 2)
+            }
+        }
         .contentShape(Rectangle())
         .onTapGesture { engine.audition(card.id) }
     }

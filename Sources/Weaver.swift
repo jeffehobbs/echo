@@ -62,7 +62,17 @@ struct PhraseCard: Identifiable, Equatable {
     var sounding: Bool
     var transpose: Int
     var arpeggiated: Bool
+    var isNewest: Bool
     var glyph: [GlyphDot]
+}
+
+/// What Echo heard most recently, so the interface can show it and offer to
+/// throw it away. `reinforced` means it was a phrase already in the vocabulary
+/// played again rather than new material.
+struct LearnedPhrase: Equatable {
+    var id: Int
+    var ageSeconds: Double
+    var reinforced: Bool
 }
 
 struct WeaverSnapshot {
@@ -76,6 +86,7 @@ struct WeaverSnapshot {
     var voices = 0
     var hearingInput = false
     var notesInProgress = 0
+    var newest: LearnedPhrase?
 }
 
 /// The two streams Echo produces. They are routed independently, so the app
@@ -197,6 +208,10 @@ final class Weaver {
     /// Set when the UI wants a phrase heard immediately.
     private var auditionRequests: [Int] = []
 
+    /// The most recent thing Echo learned, kept so the interface can offer to
+    /// discard it without hunting for it in a list sorted by weight.
+    private var lastLearned: (id: Int, at: Double, reinforced: Bool)?
+
     /// One line per entrance. Off by default; the offline analysis harness
     /// turns it on to check that the prime periods really do keep the texture
     /// from repeating.
@@ -287,6 +302,7 @@ final class Weaver {
 
     func clearVocabulary() {
         queue.async {
+            self.lastLearned = nil
             self.entries.removeAll()
             self.listener.reset()
             self.sessionHistogram = [Double](repeating: 0, count: 12)
@@ -296,6 +312,17 @@ final class Weaver {
     func forget(id: Int) {
         queue.async {
             self.entries.removeAll { $0.phrase.id == id }
+            if self.lastLearned?.id == id { self.lastLearned = nil }
+            self.assignPeriods()
+        }
+    }
+
+    /// Throw away whatever Echo learned last — the whole point of showing it.
+    func forgetLastLearned() {
+        queue.async {
+            guard let id = self.lastLearned?.id else { return }
+            self.entries.removeAll { $0.phrase.id == id }
+            self.lastLearned = nil
             self.assignPeriods()
         }
     }
@@ -336,6 +363,7 @@ final class Weaver {
     func absorb(_ phrase: Phrase) {
         if let existing = existingEntry(matching: phrase) {
             existing.weight = min(1.0, existing.weight + 0.2)
+            lastLearned = (existing.phrase.id, Clock.now(), true)
             assignPeriods()
             return
         }
@@ -352,6 +380,7 @@ final class Weaver {
                               weight: min(1.0, base),
                               seed: seedCounter | 1)
         entries.append(entry)
+        lastLearned = (phrase.id, Clock.now(), false)
 
         // Over the limit: the faintest phrase makes room for the newest.
         if entries.count > vocabularyLimit {
@@ -589,7 +618,14 @@ final class Weaver {
         let reversed = !entry.phrase.isChord && entry.playCount % 7 == 6
 
         let layerScale = 1.0 / (1.0 + 0.35 * Double(layers))
-        let presence = 0.30 + 0.55 * entry.weight
+        // Presence is relative to the loudest phrase, for the same reason the
+        // periods are: weight only ever decays, so judging level on the raw
+        // number faded every phrase toward a third of its original volume over
+        // a long session — which is what made the drone seem to grow louder and
+        // louder underneath. Normalized, the material holds its level and only
+        // its balance against the other phrases changes.
+        let ceiling = max(0.001, entries.map(\.weight).max() ?? 1)
+        let presence = 0.35 + 0.50 * (entry.weight / ceiling)
         let base = Float(layerScale * presence)
 
         var scheduled: [(time: Double, voicing: Voicing)] = []
@@ -701,7 +737,7 @@ final class Weaver {
         let degree = degrees[droneCounter % degrees.count]
         let pitch = clampPitch(36 + sessionKey.tonic + degree)
         let bed = Voicing(pitch: pitch,
-                          velocity: 0.20,
+                          velocity: 0.17,
                           hold: 23 * spb * 0.8,
                           pan: droneCounter % 2 == 0 ? -0.2 : 0.2,
                           timbre: 2,
@@ -740,6 +776,11 @@ final class Weaver {
         snap.hearingInput = listener.isHearingInput
         snap.notesInProgress = listener.noteCountInProgress
         snap.soundingCamelots = entries.filter { $0.soundingUntil > now }.map { $0.effectiveCamelot.code }
+        if let learned = lastLearned, entries.contains(where: { $0.phrase.id == learned.id }) {
+            snap.newest = LearnedPhrase(id: learned.id,
+                                        ageSeconds: max(0, now - learned.at),
+                                        reinforced: learned.reinforced)
+        }
 
         snap.cards = entries.sorted { $0.weight > $1.weight }.map { entry in
             let period = max(1, entry.period)
@@ -768,6 +809,7 @@ final class Weaver {
                               sounding: entry.soundingUntil > now,
                               transpose: entry.lastTranspose,
                               arpeggiated: entry.lastArpeggiated,
+                              isNewest: entry.phrase.id == lastLearned?.id,
                               glyph: glyph)
         }
 
@@ -777,11 +819,26 @@ final class Weaver {
 
     /// Runs the beat logic on a synthetic clock, for offline analysis. Not
     /// used by the running app, which is driven by the timer in `start()`.
-    func debugRun(beats: Int) {
+    /// `render` is handed the length of each beat, so a harness can pull the
+    /// same number of audio samples the real clock would have and measure what
+    /// actually comes out.
+    func debugRun(beats: Int, render: ((Double) -> Void)? = nil) {
         for b in 0..<beats {
             beat = b
-            onBeat(b, at: Double(b) * spb)
-            if pending.count > 400 { pending.removeAll() }
+            let time = Double(b) * spb
+            onBeat(b, at: time)
+            if render != nil {
+                // Commit everything due within this beat, then let the caller
+                // render it.
+                let end = time + spb
+                while let first = pending.first, first.time <= end {
+                    pending.removeFirst()
+                    dispatch(first, at: first.time)
+                }
+                render?(spb)
+            } else if pending.count > 400 {
+                pending.removeAll()
+            }
         }
     }
 

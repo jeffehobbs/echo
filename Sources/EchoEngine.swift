@@ -137,6 +137,7 @@ final class EchoEngine: ObservableObject {
     }
 
     func forget(_ id: Int) { weaver.forget(id: id) }
+    func discardLastLearned() { weaver.forgetLastLearned() }
     func audition(_ id: Int) { weaver.audition(id: id) }
     func nudge(_ id: Int, by delta: Double) { weaver.nudge(id: id, by: delta) }
     func panic() { weaver.panic() }
