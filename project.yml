@@ -9,6 +9,17 @@ settings:
     DEVELOPMENT_TEAM: YKF353373Y
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: 1.0.1
+    CURRENT_PROJECT_VERSION: 2
+    # Universal: Apple Silicon and Intel.
+    ARCHS: "$(ARCHS_STANDARD)"
+  configs:
+    # Debug builds only the machine's own slice, so iterating stays quick;
+    # anything shipped is built for both.
+    Debug:
+      ONLY_ACTIVE_ARCH: "YES"
+    Release:
+      ONLY_ACTIVE_ARCH: "NO"
 targets:
   Echo:
     type: application
@@ -21,6 +32,8 @@ targets:
       properties:
         CFBundleDisplayName: Echo
         CFBundleIconFile: AppIcon
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.music
         NSHumanReadableCopyright: "Jeff Hobbs"
     settings:

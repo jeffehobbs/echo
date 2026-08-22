@@ -15,10 +15,25 @@ You play for a minute. Echo plays for an hour.
 ```
 ./build.sh          # build (Debug)
 ./build.sh run      # build and launch
+./build.sh release  # Release, signed with a Developer ID
+./build.sh notarize # release, notarized and stapled, into dist/
 ```
 
 Requires Xcode and `xcodegen` (`brew install xcodegen`). The app is a single
 window; there is nothing to configure to get sound.
+
+Releases are **universal** — Apple Silicon and Intel — and need macOS 14 or
+later. The signed, notarized build is on the
+[releases page](https://github.com/jeffehobbs/echo/releases); unzip it, drag
+Echo.app to Applications, and play something.
+
+Two things about building for both architectures, since neither is obvious:
+`xcodebuild` resolves "My Mac" to the first of several matching destinations,
+which pins `arch=arm64` and quietly overrides `ARCHS` — so `ONLY_ACTIVE_ARCH=NO`
+is not enough on its own and the release build passes an explicit
+`-destination 'generic/platform=macOS'`. And XcodeGen *generates*
+`App/Info.plist` from `project.yml`, so the version lives there; editing the
+plist by hand does nothing but get overwritten.
 
 ## Getting MIDI into it
 

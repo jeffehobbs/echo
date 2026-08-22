@@ -30,8 +30,17 @@ CONFIG=Debug
 [[ "$MODE" == "release" || "$MODE" == "notarize" ]] && CONFIG=Release
 
 xcodegen generate --quiet
+
+# Anything shipped is built for both architectures. This needs an explicit
+# generic destination: left to itself, xcodebuild resolves "My Mac" to the
+# first of several matching destinations — which pins arch=arm64 and quietly
+# overrides ARCHS, so ONLY_ACTIVE_ARCH=NO alone is not enough and you get a
+# single-slice binary that looks fine until an Intel Mac tries to open it.
+DEST=()
+[[ "$CONFIG" == "Release" ]] && DEST=(-destination 'generic/platform=macOS')
+
 xcodebuild -project Echo.xcodeproj -scheme Echo -configuration "$CONFIG" \
-  -derivedDataPath build -quiet build
+  "${DEST[@]}" -derivedDataPath build -quiet build
 
 APP="build/Build/Products/$CONFIG/Echo.app"
 echo "Built: $APP"
