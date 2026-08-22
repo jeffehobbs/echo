@@ -1,0 +1,9 @@
+build/
+build-ios/
+dist/
+Echo.xcodeproj/
+Tools/makeicon
+Tools/midifeed
+Tools/midimonitor
+Tools/Echo.iconset/
+.DS_Store
