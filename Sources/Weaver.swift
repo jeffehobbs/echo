@@ -404,6 +404,67 @@ final class Weaver {
         }
     }
 
+    /// Hand back everything the weaver holds. Runs on the weaver queue and
+    /// answers on the main one, since that is where the save panel lives.
+    func exportWeave(completion: @escaping (EchoSession.Weave) -> Void) {
+        queue.async {
+            let weave = EchoSession.Weave(beat: self.beat,
+                                          histogram: self.sessionHistogram,
+                                          phrases: self.entries.map {
+                                              $0.phrase.stored(weight: $0.weight,
+                                                               seed: $0.seed,
+                                                               playCount: $0.playCount)
+                                          })
+            DispatchQueue.main.async { completion(weave) }
+        }
+    }
+
+    /// Put the weaver back where a saved session left it.
+    func importWeave(_ set: EchoSession.Weave) {
+        queue.async {
+            self.entries.removeAll()
+            self.lastLearned = nil
+            self.pending.removeAll()
+            self.synth.allNotesOff()
+            self.midiOut?.allNotesOff()
+
+            for stored in set.phrases {
+                let phrase = Phrase(stored: stored)
+                let fragments = Fragmenter.fragments(for: phrase)
+                guard !fragments.isEmpty else { continue }
+                let entry = VocabEntry(phrase: phrase,
+                                       fragments: fragments,
+                                       weight: stored.weight,
+                                       seed: stored.seed)
+                // Carrying the play count over keeps each phrase where it was
+                // in its own manipulation cycles.
+                entry.playCount = stored.playCount
+                self.entries.append(entry)
+            }
+            // The saved histogram carries the session key, so the piece resumes
+            // in the key it had drifted to instead of sitting in C until the
+            // player happens to touch something. Older or hand-made files may
+            // not have one; fall back to what the phrases themselves imply.
+            if set.histogram.count == 12, set.histogram.contains(where: { $0 > 0 }) {
+                self.sessionHistogram = set.histogram
+            } else {
+                var implied = [Double](repeating: 0, count: 12)
+                for entry in self.entries {
+                    for (i, value) in Phrase.histogram(entry.phrase.notes).enumerated() {
+                        implied[i] += value
+                    }
+                }
+                self.sessionHistogram = implied
+            }
+            self.detectSessionKey()
+            // Resume the beat count, so every phrase is due exactly when it was.
+            self.beat = set.beat
+            self.nextBeatTime = Clock.now()
+            self.listener.ensureNextID(above: set.phrases.map(\.id).max() ?? 0)
+            self.assignPeriods()
+        }
+    }
+
     func audition(id: Int) {
         queue.async { self.auditionRequests.append(id) }
     }
@@ -595,6 +656,12 @@ final class Weaver {
     private func refreshSessionKey() {
         // Decay so the key follows the player instead of averaging the session.
         for i in 0..<12 { sessionHistogram[i] *= 0.94 }
+        detectSessionKey()
+    }
+
+    /// Read the key without aging the histogram — what a freshly opened session
+    /// wants, since its histogram is exactly as old as it was when saved.
+    private func detectSessionKey() {
         if let detected = KeyFinder.detect(sessionHistogram) {
             sessionKey = detected.key
             sessionConfidence = detected.confidence

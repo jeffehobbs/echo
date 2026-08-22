@@ -91,8 +91,34 @@ input, and any note it just sent is ignored for a moment afterward in case you
 have wired a loopback (an IAC bus pointed both ways).
 
 Settings — tempo, density, routing, the chosen destination, mixer — are
-remembered between launches. The vocabulary is not; each session starts by
-listening.
+remembered between launches. The vocabulary is not: each launch starts by
+listening, unless you open a session.
+
+## Sessions
+
+A vocabulary you built by playing is worth keeping, so Echo freezes the whole
+session to a `.echo` file: every phrase, where the weave had got to, and all the
+controls.
+
+```
+⌘S   Save Session…      ⌘O   Open Session…      ⌘N   New Session
+```
+
+Opening one puts Echo back exactly where it was left — the same beat count, so
+every phrase is due when it was; the same play counts, so each phrase is at the
+same point in its own manipulation cycles; and the same rolling histogram, so
+the session key carries on drifting from where it had reached instead of
+resetting to C. Double-clicking a `.echo` file opens it.
+
+Timings are stored in beats, so a session keeps its feel at any tempo. Each
+phrase stores its seed rather than the things derived from it: timbre, stereo
+placement and the four manipulation primes all come out of that one number, so a
+phrase reloaded next month behaves exactly as it did when it was played. The
+file is JSON, and a saved session survives a save-open-save round trip
+byte for byte.
+
+New Session empties the vocabulary but leaves the controls alone — those are how
+you like to work, not part of the piece.
 
 ## How it listens
 
@@ -237,6 +263,7 @@ Sources/
   MIDIInput     CoreMIDI sources, the virtual destination, loopback guard
   MIDIOutput    the virtual "Echo Out" source and the chosen destination
   Support       clock, primes, deterministic RNG, render-thread queue
+  EchoSession   the .echo session document
   ContentView   the interface
 Tools/
   midifeed      sends a short improvisation to Echo, for testing without a controller

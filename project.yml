@@ -9,8 +9,8 @@ settings:
     DEVELOPMENT_TEAM: YKF353373Y
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: 1.0.5
-    CURRENT_PROJECT_VERSION: 6
+    MARKETING_VERSION: 1.0.6
+    CURRENT_PROJECT_VERSION: 7
     # Universal: Apple Silicon and Intel.
     ARCHS: "$(ARCHS_STANDARD)"
   configs:
@@ -34,6 +34,23 @@ targets:
         CFBundleIconFile: AppIcon
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Declaring the session type properly, rather than leaning on a dynamic
+        # one derived from the extension, is what lets the open panel filter
+        # correctly and a saved session open by double-clicking it.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Echo Session
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.jeffhobbs.echo.session
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.jeffhobbs.echo.session
+            UTTypeDescription: Echo Session
+            UTTypeConformsTo:
+              - public.json
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - echo
         LSApplicationCategoryType: public.app-category.music
         NSHumanReadableCopyright: "Jeff Hobbs"
     settings:

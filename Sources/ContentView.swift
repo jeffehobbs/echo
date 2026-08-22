@@ -180,7 +180,11 @@ struct ContentView: View {
     private var vocabulary: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Theme.label("vocabulary \u{00B7} \(engine.snapshot.cards.count) phrases")
+                if let name = engine.sessionName {
+                    Theme.label("\(name) \u{00B7} \(engine.snapshot.cards.count) phrases")
+                } else {
+                    Theme.label("vocabulary \u{00B7} \(engine.snapshot.cards.count) phrases")
+                }
                 Spacer()
                 if !engine.snapshot.soundingCamelots.isEmpty {
                     Text(engine.snapshot.soundingCamelots.joined(separator: " + "))

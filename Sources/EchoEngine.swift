@@ -1,6 +1,8 @@
+import AppKit
 import CoreMIDI
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Top-level app state: owns the audio output, the MIDI listener and the
 /// weaver, and republishes the weaver's snapshots for SwiftUI.
@@ -9,6 +11,8 @@ final class EchoEngine: ObservableObject {
     @Published var snapshot = WeaverSnapshot()
     @Published var sources: [MIDISourceInfo] = []
     @Published var destinations: [MIDIDestinationInfo] = []
+    /// Name of the session file in play, shown next to the vocabulary.
+    @Published var sessionName: String?
     @Published var selectedDestination: MIDIUniqueID?
 
     /// Where the phrases go, and where the bed goes.
@@ -58,6 +62,9 @@ final class EchoEngine: ObservableObject {
     private let midiOut = MIDIOutput()
     private let weaver: Weaver
 
+    /// So the app delegate can hand over a session opened from the Finder.
+    static weak var current: EchoEngine?
+
     init() {
         weaver = Weaver(synth: audio.kernel)
         weaver.onSnapshot = { [weak self] snap in
@@ -99,6 +106,7 @@ final class EchoEngine: ObservableObject {
         refreshSources()
         refreshDestinations()
         syncDelay()
+        EchoEngine.current = self
 
         // Never leave an external instrument holding a note.
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
@@ -148,6 +156,108 @@ final class EchoEngine: ObservableObject {
     func audition(_ id: Int) { weaver.audition(id: id) }
     func nudge(_ id: Int, by delta: Double) { weaver.nudge(id: id, by: delta) }
     func panic() { weaver.panic() }
+
+    // MARK: - Sessions
+
+    private var sessionType: UTType {
+        UTType(EchoSession.typeIdentifier)
+            ?? UTType(filenameExtension: EchoSession.fileExtension)
+            ?? .json
+    }
+
+    private var controls: EchoSession.Controls {
+        EchoSession.Controls(bpm: bpm, density: density, layers: layers,
+                             arpeggio: arpeggio, tape: tape, reverse: reverse,
+                             shuffle: shuffle, harmonicPull: harmonicPull,
+                             reverb: reverb, delay: delay, volume: volume,
+                             drone: drone, monitorInput: monitorInput,
+                             learning: learning, playing: playing,
+                             bedTone: Int(bedTone.index),
+                             phraseRoute: phraseRoute.rawValue,
+                             bedRoute: bedRoute.rawValue)
+    }
+
+    /// Freeze the session to a file: the vocabulary, where the weave had got
+    /// to, and every control.
+    func saveSession() {
+        weaver.exportWeave { [weak self] weave in
+            guard let self else { return }
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [self.sessionType]
+            panel.nameFieldStringValue = self.sessionName
+                ?? "Session.\(EchoSession.fileExtension)"
+            panel.title = "Save Session"
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            let session = EchoSession(controls: self.controls, weave: weave)
+            do {
+                try session.encoded().write(to: url, options: .atomic)
+                self.sessionName = url.lastPathComponent
+            } catch {
+                self.report("Could not save the session", error)
+            }
+        }
+    }
+
+    func openSession() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [sessionType]
+        panel.allowsMultipleSelection = false
+        panel.title = "Open Session"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        open(url)
+    }
+
+    /// Also the path taken when a session is double-clicked in the Finder.
+    func open(_ url: URL) {
+        do {
+            let session = try EchoSession.decoded(from: Data(contentsOf: url))
+            apply(session)
+            sessionName = url.lastPathComponent
+        } catch {
+            report("Could not open that session", error)
+        }
+    }
+
+    /// Empty the vocabulary and forget the file, leaving the controls alone —
+    /// they are how you like to work, not part of the piece.
+    func newSession() {
+        weaver.clearVocabulary()
+        weaver.panic()
+        sessionName = nil
+    }
+
+    private func apply(_ session: EchoSession) {
+        let c = session.controls
+        bpm = c.bpm
+        density = c.density
+        layers = c.layers
+        arpeggio = c.arpeggio
+        tape = c.tape
+        reverse = c.reverse
+        shuffle = c.shuffle
+        harmonicPull = c.harmonicPull
+        reverb = c.reverb
+        delay = c.delay
+        volume = c.volume
+        drone = c.drone
+        monitorInput = c.monitorInput
+        learning = c.learning
+        playing = c.playing
+        bedTone = Timbre.named(Int32(c.bedTone))
+        phraseRoute = Route(rawValue: c.phraseRoute) ?? phraseRoute
+        bedRoute = Route(rawValue: c.bedRoute) ?? bedRoute
+        sync()
+        weaver.importWeave(session.weave)
+    }
+
+    private func report(_ message: String, _ error: Error) {
+        NSLog("Echo: \(message): \(error)")
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.runModal()
+    }
 
     /// Name of the current MIDI output target, for the header.
     var destinationLabel: String {

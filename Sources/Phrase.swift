@@ -194,6 +194,12 @@ final class PhraseListener {
         heldBySustain.removeAll()
     }
 
+    /// Keeps freshly played phrases from colliding with the ids in a set that
+    /// was just loaded.
+    func ensureNextID(above id: Int) {
+        nextID = max(nextID, id + 1)
+    }
+
     func reset() {
         open.removeAll()
         pending.removeAll()
